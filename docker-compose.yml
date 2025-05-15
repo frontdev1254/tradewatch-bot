@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  tradewatch:
+    build: .
+    container_name: tradewatch
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./secrets:/usr/src/app/secrets
+      - ./data:/usr/src/app/data
+    command: pm2-runtime config/ecosystem.config.js

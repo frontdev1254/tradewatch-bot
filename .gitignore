@@ -1,0 +1,23 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Google credentials & token (em /secrets)
+secrets/
+!secrets/.gitignore
+
+# Trade cache
+data/sent_trades.json
+
+# Logs and temp files
+logs/
+*.log
+temp_*
+*.tmp
+
+# IDE / OS files
+.vscode/
+.DS_Store
+Thumbs.db
