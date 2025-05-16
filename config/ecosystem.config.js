@@ -5,7 +5,7 @@ module.exports = {
       name: 'tradewatch',
 
       // Entry point of the application
-      script: 'index.js',
+      script: 'src/index.js',
 
       // Working directory inside the Docker container
       cwd: '/usr/src/app',

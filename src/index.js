@@ -119,6 +119,16 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 bot.startPolling({ params: { timeout: 30 } });
 
+bot.on('polling_error', (err) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[Polling Error - ${timestamp}] ${err.message}`);
+
+  if (err.code === 'EFATAL') {
+    console.error('Erro fatal detectado no polling. Encerrando processo para reinício automático...');
+    process.exit(1); // Docker ou PM2 relança (se estiver usando)
+  }
+});
+
 async function safeTelegramCall(method, ...args) {
   let attempt = 0;
   while (true) {
