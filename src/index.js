@@ -1,9 +1,12 @@
 // --- Global Error Handling ----------------------------------
 process.on('uncaughtException', err => {
   console.error('Uncaught Exception:', err);
+  process.exit(1); // Reinicia em falhas críticas
 });
+
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1); // Reinicia em falhas críticas
 });
 // -----------------------------------------------------------------
 
@@ -119,14 +122,21 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 bot.startPolling({ params: { timeout: 30 } });
 
+//Blindagem contra polling travado
 bot.on('polling_error', (err) => {
   const timestamp = new Date().toISOString();
   console.error(`[Polling Error - ${timestamp}] ${err.message}`);
-
   if (err.code === 'EFATAL') {
     console.error('Erro fatal detectado no polling. Encerrando processo para reinício automático...');
-    process.exit(1); // Docker ou PM2 relança (se estiver usando)
+    process.exit(1);
   }
+});
+
+//Blindagem contra erro geral do Telegram
+bot.on('error', (err) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[Telegram Error - ${timestamp}] ${err.message}`);
+  process.exit(1);
 });
 
 async function safeTelegramCall(method, ...args) {
