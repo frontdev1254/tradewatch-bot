@@ -1,12 +1,12 @@
 // --- Global Error Handling ----------------------------------
 process.on('uncaughtException', err => {
   console.error('Uncaught Exception:', err);
-  process.exit(1); // Reinicia em falhas críticas
+  process.exit(1); // restart on critical failures
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1); // Reinicia em falhas críticas
+  process.exit(1); // restart on critical failures
 });
 // -----------------------------------------------------------------
 
@@ -122,7 +122,7 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 bot.startPolling({ params: { timeout: 30 } });
 
-//Blindagem contra polling travado
+// shield against stuck polling
 bot.on('polling_error', (err) => {
   const timestamp = new Date().toISOString();
   console.error(`[Polling Error - ${timestamp}] ${err.message}`);
@@ -132,7 +132,7 @@ bot.on('polling_error', (err) => {
   }
 });
 
-//Blindagem contra erro geral do Telegram
+// shield against general Telegram errors
 bot.on('error', (err) => {
   const timestamp = new Date().toISOString();
   console.error(`[Telegram Error - ${timestamp}] ${err.message}`);
@@ -420,30 +420,33 @@ async function monitorPrice(trade, auth) {
     if (hitStop) {
       return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Stop Loss' });
     }
+
     if (hitT1) {
-      await safeSheetsCall(() =>
-        sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
-          range: `K${rowNumber}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[pnl.toFixed(2)]] }
-        })
-      );
-      trade.ResAlvo1 = pnl;
-      if (!Alvo2) {
-        return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
-      }
-      await safeTelegramCall(
-        'sendPhoto',
-        TELEGRAM_CHAT_ID,
-        getDirectDriveUrl(trade.Imagem),
-        {
-          caption: `🚨 Alvo 1 atingido! (${pnl.toFixed(2)}%)`,
-          parse_mode: 'HTML',
-          message_thread_id: TELEGRAM_TOPIC_ID
-        }
-      );
-    }
+  // update column K with the PnL of Target 1
+  await safeSheetsCall(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `K${rowNumber}`,
+      valueInputOption: 'RAW',
+      resource: { values: [[pnl.toFixed(2)]] }
+    })
+  );
+  trade.ResAlvo1 = pnl;
+
+  // mark this as a Target 1 update and call sendTradeToTelegram
+  trade.TipoCard = 'update1';
+
+  if (!Alvo2) {
+    return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
+  }
+
+  try {
+    await sendTradeToTelegram(trade);
+  } catch (e) {
+    console.error('❌ erro enviando update1:', e.message);
+  }
+}
+
     if (hitT2) {
       await safeSheetsCall(() =>
         sheets.spreadsheets.values.update({
