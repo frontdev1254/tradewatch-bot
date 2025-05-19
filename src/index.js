@@ -394,26 +394,20 @@ async function monitorPrice(trade, auth) {
   const hasTakenProfit = trade.ResAlvo1 != null;
 
   while (true) {
-    let resp;
-    try {
-      resp = await safeBybitCall(() => axios.get(url));
-      if (wasDisconnected) {
-        console.log(`[Monitor ${Ativo}] Conexão restabelecida.`);
-        wasDisconnected = false;
-      }
-    } catch (e) {
-      wasDisconnected = true;
-      console.error(`[Monitor ${Ativo}] Bybit API falhou: ${e.message}`);
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      continue;
+  try {
+    const resp = await safeBybitCall(() => axios.get(url));
+
+    if (wasDisconnected) {
+      console.log(`[Monitor ${Ativo}] Conexão restabelecida com Bybit.`);
+      wasDisconnected = false;
     }
 
-    price = parseFloat(resp.data.result.list[0].lastPrice);
+    const price = parseFloat(resp.data.result.list[0].lastPrice);
     const pnl = isLong
       ? ((price - Entrada) / Entrada) * 100 * Alavancagem
       : ((Entrada - price) / Entrada) * 100 * Alavancagem;
 
-    const hitStop = !hasTakenProfit && (isLong ? price <= Stop : price >= Stop);
+    const hitStop = isLong ? price <= Stop : price >= Stop;
     const hitT1 = trade.ResAlvo1 == null && (isLong ? price >= Alvo1 : price <= Alvo1);
     const hitT2 = Alvo2 != null && trade.ResAlvo2 == null && (isLong ? price >= Alvo2 : price <= Alvo2);
 
@@ -422,58 +416,80 @@ async function monitorPrice(trade, auth) {
     }
 
     if (hitT1) {
-  // update column K with the PnL of Target 1
-  await safeSheetsCall(() =>
-    sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `K${rowNumber}`,
-      valueInputOption: 'RAW',
-      resource: { values: [[pnl.toFixed(2)]] }
-    })
-  );
-  trade.ResAlvo1 = pnl;
+      try {
+        await safeSheetsCall(() =>
+          sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `K${rowNumber}`,
+            valueInputOption: 'RAW',
+            resource: { values: [[pnl.toFixed(2)]] }
+          })
+        );
+      } catch (err) {
+        console.error(`[Monitor ${Ativo}] Erro ao atualizar Alvo 1: ${err.message}`);
+      }
 
-  // mark this as a Target 1 update and call sendTradeToTelegram
-  trade.TipoCard = 'update1';
+      trade.ResAlvo1 = pnl;
+      trade.TipoCard = 'update1';
 
-  if (!Alvo2) {
-    return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
-  }
+      if (!Alvo2) {
+        return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
+      }
 
-  try {
-    await sendTradeToTelegram(trade);
-  } catch (e) {
-    console.error('❌ erro enviando update1:', e.message);
-  }
-}
+      try {
+        await sendTradeToTelegram(trade);
+      } catch (e) {
+        console.error(`[Monitor ${Ativo}] Erro ao enviar card de Alvo 1: ${e.message}`);
+      }
+    }
 
     if (hitT2) {
-      await safeSheetsCall(() =>
-        sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
-          range: `M${rowNumber}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[pnl.toFixed(2)]] }
-        })
-      );
+      try {
+        await safeSheetsCall(() =>
+          sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `M${rowNumber}`,
+            valueInputOption: 'RAW',
+            resource: { values: [[pnl.toFixed(2)]] }
+          })
+        );
+      } catch (err) {
+        console.error(`[Monitor ${Ativo}] Erro ao atualizar Alvo 2: ${err.message}`);
+      }
+
       trade.ResAlvo2 = pnl;
       return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
     }
 
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+  } catch (err) {
+    wasDisconnected = true;
+    console.error(`[Monitor ${Ativo}] Erro inesperado no loop de monitoramento: ${err.message}`);
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
+}
+
 }
 
 async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
   const { rowNumber, Alvo2 } = trade;
+
+  // Protection: if the stop was hit after Target 1, exit silently
+  if (tipoFinal === 'Stop Loss' && trade.ResAlvo1 != null) {
+    console.log(`[Monitor ${trade.Ativo}] Stop atingido após Alvo 1 — encerrando silenciosamente.`);
+    return; // Does not update spreadsheet or send card
+  }
+
   const updates = [];
 
   if (tipoFinal === 'Profit' && trade.ResAlvo1 == null) {
     updates.push({ range: `K${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
   }
+
   if (tipoFinal === 'Profit' && Alvo2 != null && trade.ResAlvo2 == null) {
     updates.push({ range: `M${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
   }
+
   updates.push({ range: `P${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
   updates.push({ range: `Q${rowNumber}`, values: [['Encerrado']] });
   updates.push({ range: `R${rowNumber}`, values: [[tipoFinal]] });
@@ -500,7 +516,7 @@ async function sendTradeToTelegram(trade) {
   } = trade;
 
   let header;
-  if (TipoCard === 'open') header = '🚨 Novo trade detectado!';
+  if (TipoCard === 'open') header = '🚨 Novo Trade Detectado!';
   else if (TipoCard === 'update1')
     header = `🚨 Alvo 1 atingido! (${ResAlvo1.toFixed(2)}%)`;
   else {
