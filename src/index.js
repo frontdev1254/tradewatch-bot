@@ -54,7 +54,7 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = parseInt(process.env.TELEGRAM_CHAT_ID, 10);
 const TELEGRAM_TOPIC_ID = parseInt(process.env.TELEGRAM_TOPIC_ID, 10);
 const CONCURRENCY_LIMIT = 60;
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = 10000;
 
 let credentials;
 try {
