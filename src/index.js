@@ -220,7 +220,6 @@ async function safeBybitCall(callFn, maxRetries = 5) {
   }
 }
 
-const processedTrades = new Set();
 const activeMonitors = new Map();
 let activeTasks = 0;
 
@@ -500,11 +499,24 @@ async function monitorPrice(trade, auth) {
 async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
   const { rowNumber, Alvo2 } = trade;
 
-  // Protection: if the stop was hit after Target 1, exit silently
   if (tipoFinal === 'Stop Loss' && trade.ResAlvo1 != null) {
-    console.log(`[Monitor ${trade.Ativo}] Stop atingido após Alvo 1 — encerrando silenciosamente.`);
-    return; // Does not update spreadsheet or send card
-  }
+  console.log(`[Monitor ${trade.Ativo}] Stop atingido após Alvo 1 — encerrando com lucro parcial.`);
+
+  const updates = [
+    { range: `P${trade.rowNumber}`, values: [[trade.ResAlvo1.toFixed(2)]] },
+    { range: `Q${trade.rowNumber}`, values: [['Encerrado']] },
+    { range: `R${trade.rowNumber}`, values: [['Lucro Parcial']] }
+  ];
+
+  await safeSheetsCall(() =>
+    sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      resource: { valueInputOption: 'RAW', data: updates }
+    })
+  );
+
+  return; // não envia card de encerramento
+}
 
   const updates = [];
 
