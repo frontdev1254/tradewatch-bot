@@ -29,6 +29,32 @@ if (fs.existsSync(SENT_TRADES_FILE)) {
     sentTrades = [];
   }
 }
+
+const PROCESSED_FILE = path.resolve(__dirname, '../data/processed_trades.json');
+const PROCESSED_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
+let processedTradesMap = {};
+
+if (fs.existsSync(PROCESSED_FILE)) {
+  try {
+    const raw = fs.readFileSync(PROCESSED_FILE, 'utf8');
+    processedTradesMap = JSON.parse(raw);
+  } catch (err) {
+    console.error('Erro ao carregar processed_trades.json:', err.message);
+  }
+}
+
+const processedTrades = new Set(
+  Object.entries(processedTradesMap)
+    .filter(([_, timestamp]) => Date.now() - timestamp < PROCESSED_TTL_MS)
+    .map(([id]) => id)
+);
+
+function saveProcessedTrade(id) {
+  processedTrades.add(id);
+  processedTradesMap[id] = Date.now();
+  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(processedTradesMap, null, 2));
+}
+
 function saveSentTrades() {
   if (sentTrades.length > 1000) sentTrades = sentTrades.slice(-1000);
   fs.writeFileSync(SENT_TRADES_FILE, JSON.stringify(sentTrades, null, 2));
@@ -296,7 +322,7 @@ async function scanAndMonitorAllTrades(auth) {
 
       const trade = parseRow(raw, rowNum);
       if (!trade.Status) {
-        processedTrades.add(id);
+        saveProcessedTrade(id);
         if (!sentTrades.includes(id)) {
           trade.TipoCard = 'open';
           try {
@@ -330,7 +356,7 @@ async function checkNewEntries(auth) {
         if (!processedTrades.has(id) && !sentTrades.includes(id)) {
           const trade = parseRow(raw, rowNum);
           if (!trade.Status) {
-            processedTrades.add(id);
+            saveProcessedTrade(id);
             trade.TipoCard = 'open';
             try {
               await sendTradeToTelegram(trade);
