@@ -1,63 +1,124 @@
-A robust trading bot built with Node.js that monitors a Google Sheets spreadsheet for new trade entries, sends trade cards to a specific Telegram forum topic, and updates trade statuses automatically.
+# 🟢 Tradewatch Bot
 
-## Features
+A robust and production-grade trading bot built with **Node.js** that:
 
-- **Spreadsheet Integration:** Reads and writes trades to Google Sheets.
-- **Forum Topic Posting:** Sends trade cards directly to a designated Telegram topic (thread) in a supergroup.
-- **Price Monitoring:** Polls Bybit API for live price updates and triggers stop-loss/target events.
-- **Persistent Tracking:** Avoids duplicate postings using in-memory and optional JSON persistence.
-- **Automatic Updates:** Posts updates for target hits and stop-loss events.
-- **Resilient Polling:** Reconnects on network or polling errors.
+- Monitors a **Google Sheets** spreadsheet for new trade entries  
+- Sends **automated trade cards** to a specific **Telegram topic**  
+- Monitors live prices via the **Bybit API**  
+- Automatically updates trade statuses with stop-loss and target logic  
 
-## Tech Stack
+---
 
-- **Node.js**
-- **Telegram Bot API** (via `node-telegram-bot-api`)
-- **Google APIs** (`googleapis` for Sheets and Drive)
-- **Axios** for HTTP requests
+## ✅ Features
+- **Google Sheets Integration**  
+  Reads and updates spreadsheet data in real time using a **Service Account** (no OAuth needed).
 
+- **Telegram Integration**  
+  Sends trade alerts, updates, and closures to a **forum topic inside a Telegram supergroup**.
 
-## Environment Variables
+- **Live Price Monitoring**  
+  Continuously polls **Bybit** for market price updates to trigger targets and stop-loss events.
 
-Create a .env file in the root directory with the following variables:
+- **Persistent Tracking**  
+  Prevents duplicate messages using local JSON caches (`sent_trades.json`, `processed_trades.json`).
+
+- **Resilience & Retry**  
+  Uses exponential backoff + jitter for all API calls to handle rate limits and connection errors gracefully.
+
+---
+
+## 🛠 Tech Stack
+- Node.js
+- Google Sheets API (via Service Account)
+- Telegram Bot API (`node-telegram-bot-api`)
+- Bybit API
+- Docker + Docker Compose
+- PM2 Runtime
+
+---
+
+## ⚙️ Environment Variables
+Create a `.env` file in the root directory with the following variables:
 
 ```env
-GOOGLE_CREDENTIALS_PATH=./client_secret.json  # Path to your Google Service Account JSON
-SPREADSHEET_ID=your_google_sheet_id          # ID of the Google Sheets spreadsheet
-TELEGRAM_TOKEN=your_telegram_bot_token       # Token of your Telegram bot
-TELEGRAM_CHAT_ID=-100xxxxxxxxxx              # Chat ID of the Telegram supergroup
-TELEGRAM_TOPIC_ID=123456                     # Thread ID of the forum topic for trades
+# Path to your Service Account credentials JSON
+GOOGLE_CREDENTIALS_PATH=./secrets/tradewatch-key.json
+
+# ID of the Google Spreadsheet to monitor
+SPREADSHEET_ID=your_google_sheet_id_here
+
+# Telegram bot token
+TELEGRAM_TOKEN=your_telegram_bot_token_here
+
+# Telegram group or channel ID
+TELEGRAM_CHAT_ID=-100xxxxxxxxxx
+
+# Telegram topic/thread ID (optional)
+TELEGRAM_TOPIC_ID=123456
+
+# Bybit API URL (optional override)
+BYBIT_BASE_URL=https://api.bybit.com/v5/market/tickers?category=linear&symbol=
 ```
 
-Ensure the service account has Editor access to the Google Sheet and Drive
+🔐 **Important:** Ensure the Google Sheet is shared with the Service Account email (xxx@project.iam.gserviceaccount.com).
 
-## Setup
+---
 
+## 📁 File Structure
+tradewatch-bot/
+├── src/
+│   ├── index.js              # Main bot logic
+│   └── sheets.js             # Google Sheets wrapper (Service Account auth)
+├── data/
+│   ├── sent_trades.json      # JSON cache of sent trades
+│   └── processed_trades.json # JSON cache of processed trades
+├── secrets/
+│   └── tradewatch-key.json   # Service Account JSON (excluded from Git)
+├── .env                      # Environment variables
+├── Dockerfile                # Docker build config
+├── docker-compose.yml        # Docker service config
+├── ecosystem.config.js       # PM2 process manager config
+├── package.json              # Project metadata
+└── README.md                 # This file
+
+---
+
+## 🧪 Running Locally
 ```bash
-git clone https://github.com/frontdev1254/Barratrader_tradingbot.git
-cd telegram-trading-bot
+# Clone the repo
+git clone https://github.com/YOUR_USER/tradewatch-bot.git
+cd tradewatch-bot
+
+# Install dependencies
 npm install
-npm start
+
+# Run the bot
+node src/index.js
+```
+---
+
+## 🐳 Running with Docker
+```bash
+# Build and start the container in detached mode
+docker-compose up -d --build
+
+# View logs
+docker logs -f tradewatch
 ```
 
-The bot will authenticate using the service account JSON, scan existing trades, and begin polling for new ones.
+---
 
-## File Structure
+## 🩺 Healthcheck
+The bot exposes a healthcheck endpoint at:
 
-/telegram-trading-bot
-├── index.js                # Main bot logic
-├── auth.js                 # OAuth2 helper (optional)
-├── client_secret.json      # Google Service Account credentials
-├── token.json              # OAuth2 token for user flow (if used)
-├── processed_trades.json   # Optional persistence of processed trades
-├── .env                    # Environment variables (ignored by Git)
-├── package.json            # npm configuration
-└── README.md               # Project documentation
+http://<your-ip>:3000/health
 
-## Author
+---
 
-Igor Souza – @frontdev1254
+## 👨‍💻 Author
+Igor Souza
+GitHub: @frontdev1254
 
-## License
 
-This project is licensed under the MIT License – see the LICENSE file for details.
+## 📝 License
+This project is licensed under the MIT License. See LICENSE for details.

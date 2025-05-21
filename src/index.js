@@ -15,9 +15,11 @@ const path = require('path');
 const os = require('os');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-const { google } = require('googleapis');
+const { sheets, auth } = require('./sheets');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const { google } = require('googleapis');
+
 
 const SENT_TRADES_FILE = path.resolve(__dirname, '../data/sent_trades.json');
 let sentTrades = [];
@@ -31,7 +33,7 @@ if (fs.existsSync(SENT_TRADES_FILE)) {
 }
 
 const PROCESSED_FILE = path.resolve(__dirname, '../data/processed_trades.json');
-const PROCESSED_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
+const PROCESSED_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 let processedTradesMap = {};
 
 if (fs.existsSync(PROCESSED_FILE)) {
@@ -73,29 +75,12 @@ for (const k of requiredEnvs) {
   }
 }
 
-const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || path.resolve(__dirname, '../secrets/client_secret.json');
-const TOKEN_PATH = path.resolve(__dirname, '../secrets/token.json');
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = parseInt(process.env.TELEGRAM_CHAT_ID, 10);
 const TELEGRAM_TOPIC_ID = parseInt(process.env.TELEGRAM_TOPIC_ID, 10);
 const CONCURRENCY_LIMIT = 60;
 const POLL_INTERVAL_MS = 10000;
-
-let credentials;
-try {
-  credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
-} catch (err) {
-  console.error('Erro ao carregar credenciais Google:', err.message);
-  process.exit(1);
-}
-const { client_id, client_secret, redirect_uris } =
-  credentials.installed || credentials.web;
-const oAuth2Client = new google.auth.OAuth2(
-  client_id,
-  client_secret,
-  redirect_uris[0]
-);
 
 // Google Sheets/Drive
 async function safeSheetsCall(callFn, maxRetries = 5) {
@@ -131,14 +116,11 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
         attempt++;
         continue;
       }
-      if (code === 401 && attempt === 0) {
-        console.warn('🔑 Token expirado, renovando credenciais...');
-        const { credentials: newTokens } = await oAuth2Client.refreshAccessToken();
-        oAuth2Client.setCredentials(newTokens);
-        fs.writeFileSync(TOKEN_PATH, JSON.stringify(newTokens, null, 2));
-        attempt++;
-        continue;
-      }
+
+      if (code === 401) {
+  console.warn('⚠️ Erro 401: Não autorizado — verifique se a planilha está compartilhada com a conta de serviço.');
+  return;
+}
       throw err;
     }
   }
@@ -271,39 +253,6 @@ function getDirectDriveUrl(driveUrl) {
   return fileId
     ? `https://drive.google.com/uc?export=download&id=${fileId}`
     : driveUrl;
-}
-
-function authorize(callback) {
-  fs.readFile(TOKEN_PATH, (err, token) => {
-    if (err) return getAccessToken(callback);
-    oAuth2Client.setCredentials(JSON.parse(token));
-    callback(oAuth2Client);
-  });
-}
-
-function getAccessToken(callback) {
-  const authUrl = oAuth2Client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: [
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive'
-    ]
-  });
-  console.log('Authorize this app by visiting this url:', authUrl);
-  const rl = require('readline').createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  rl.question('Enter the code from that page here: ', code => {
-    rl.close();
-    oAuth2Client.getToken(code, (err, token) => {
-      if (err) return console.error('Erro obtendo token de acesso', err);
-      oAuth2Client.setCredentials(token);
-      fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2));
-      callback(oAuth2Client);
-    });
-  });
 }
 
 async function scanAndMonitorAllTrades(auth) {
@@ -515,7 +464,7 @@ async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
     })
   );
 
-  return; // não envia card de encerramento
+  return; // does not send closing card
 }
 
   const updates = [];
@@ -595,11 +544,12 @@ Análise: ${escapeHtml(Analise)}`;
 }
 
 // Initialization and Healthcheck
-authorize(async auth => {
+(async () => {
+  const authClient = await auth.getClient();
   console.log('✅ [BOT] Inicializado com sucesso. Monitoramento ativo...');
-  await scanAndMonitorAllTrades(auth);
-  await checkNewEntries(auth);
-});
+  await scanAndMonitorAllTrades(authClient);
+  await checkNewEntries(authClient);
+})();
 
 const express = require('express');
 const app = express();

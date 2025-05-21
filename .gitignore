@@ -4,12 +4,12 @@ node_modules/
 # Environment variables
 .env
 
-# Google credentials & token (em /secrets)
-secrets/
-!secrets/.gitignore
+# Google credentials (Service Account JSON)
+secrets/tradewatch-key.json
 
 # Trade cache
 data/sent_trades.json
+data/processed_trades.json
 
 # Logs and temp files
 logs/
