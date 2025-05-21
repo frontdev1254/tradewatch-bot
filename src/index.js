@@ -555,3 +555,5 @@ const express = require('express');
 const app = express();
 app.get('/health', (_, res) => res.send('OK'));
 app.listen(3000, () => console.log('Healthcheck em :3000/health'));
+
+console.log('Deploy test')

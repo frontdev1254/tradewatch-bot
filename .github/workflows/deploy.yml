@@ -1,0 +1,26 @@
+name: Deploy Tradewatch Bot to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v3
+
+      - name: 🤝 Connect via SSH and deploy
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 18.143.21.82
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            cd tradewatch-bot
+            git pull origin main
+            docker compose down
+            docker compose up -d --build
