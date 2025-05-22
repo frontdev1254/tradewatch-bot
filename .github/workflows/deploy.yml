@@ -21,6 +21,7 @@ jobs:
           key: ${{ secrets.AWS_SSH_KEY }}
           script: |
             cd tradewatch-bot
-            git pull origin main
-            docker compose down
-            docker compose up -d --build
+            git fetch https://github.com/frontdev1254/tradewatch-bot.git main
+            git reset --hard FETCH_HEAD
+            docker-compose down
+            docker-compose up -d --build
