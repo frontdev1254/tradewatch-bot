@@ -1,21 +1,16 @@
-# Use an official lightweight Node.js image
-FROM node:18-alpine
+FROM node:20-alpine
 
-# Set the working directory inside the container
 WORKDIR /usr/src/app
 
-# Copy only dependency definitions first (to leverage Docker cache)
+# Copia apenas os arquivos de dependência
 COPY package*.json ./
 
-# Install PM2 globally and project dependencies
-RUN npm install -g pm2
-RUN npm install
+# Instala as dependências e o PM2 global
+RUN npm install -g pm2 && npm install
 
-# Copy all remaining source files into the container
+# Só depois copia o resto da aplicação
 COPY . .
 
-# Expose the port used for the healthcheck endpoint
 EXPOSE 3000
 
-# Start the app using PM2 with the specified ecosystem configuration
 CMD ["pm2-runtime", "config/ecosystem.config.js"]

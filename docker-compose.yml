@@ -10,6 +10,11 @@ services:
     env_file:
       - .env
     volumes:
-      - ./secrets:/usr/src/app/secrets
+      - ./secrets:/usr/src/app/secrets:ro
       - ./data:/usr/src/app/data
     command: pm2-runtime config/ecosystem.config.js
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

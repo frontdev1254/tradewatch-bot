@@ -4,20 +4,26 @@ node_modules/
 # Environment variables
 .env
 
-# Google credentials (Service Account JSON)
-secrets/tradewatch-key.json
+# Google credentials
+secrets/
+!secrets/.gitkeep
 
-# Trade cache
-data/sent_trades.json
-data/processed_trades.json
+# Trade cache e arquivos de estado
+data/
+!data/.gitkeep
 
-# Logs and temp files
+# Logs e arquivos temporários
 logs/
 *.log
-temp_*
+*.log.*
 *.tmp
+temp_*
 
-# IDE / OS files
+# PM2 e processos
+.pm2/
+*.pid
+
+# IDE / SO
 .vscode/
 .DS_Store
 Thumbs.db

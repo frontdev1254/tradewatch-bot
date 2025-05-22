@@ -1,3 +1,4 @@
+const lastLogBySymbol = new Map();
 // --- Global Error Handling ----------------------------------
 process.on('uncaughtException', err => {
   console.error('Uncaught Exception:', err);
@@ -30,31 +31,6 @@ if (fs.existsSync(SENT_TRADES_FILE)) {
     console.error('Erro ao carregar sent_trades.json:', err.message);
     sentTrades = [];
   }
-}
-
-const PROCESSED_FILE = path.resolve(__dirname, '../data/processed_trades.json');
-const PROCESSED_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-let processedTradesMap = {};
-
-if (fs.existsSync(PROCESSED_FILE)) {
-  try {
-    const raw = fs.readFileSync(PROCESSED_FILE, 'utf8');
-    processedTradesMap = JSON.parse(raw);
-  } catch (err) {
-    console.error('Erro ao carregar processed_trades.json:', err.message);
-  }
-}
-
-const processedTrades = new Set(
-  Object.entries(processedTradesMap)
-    .filter(([_, timestamp]) => Date.now() - timestamp < PROCESSED_TTL_MS)
-    .map(([id]) => id)
-);
-
-function saveProcessedTrade(id) {
-  processedTrades.add(id);
-  processedTradesMap[id] = Date.now();
-  fs.writeFileSync(PROCESSED_FILE, JSON.stringify(processedTradesMap, null, 2));
 }
 
 function saveSentTrades() {
@@ -92,39 +68,39 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
       const code = err.code || err.response?.status;
       const reason = err.errors?.[0]?.reason;
 
-      // 400 / 404
       if (code === 400) {
         console.error(`❌ Google API 400 (${reason}): ${err.errors?.[0]?.message} — pulando.`);
         return;
       }
+
       if (code === 404) {
         console.error('❌ Google API 404: recurso não encontrado — verifique sheet/id.');
+        return;
+      }
+
+      if (code === 401) {
+        console.warn('⚠️ Erro 401: Não autorizado — verifique se a planilha está compartilhada com a conta de serviço.');
         return;
       }
 
       const retryableApiErrors = [429, 500, 502, 503, 504];
       const retryableQuota =
         code === 403 &&
-        ['rateLimitExceeded','userRateLimitExceeded','sharingRateLimitExceeded','dailyLimitExceeded']
+        ['rateLimitExceeded', 'userRateLimitExceeded', 'sharingRateLimitExceeded', 'dailyLimitExceeded']
           .includes(reason);
 
       if ((retryableApiErrors.includes(code) || retryableQuota) && attempt < maxRetries) {
-        const delay = Math.min(2 ** attempt * 1000, 64000)
-                    + Math.floor(Math.random() * 1000);
+        const delay = Math.min(2 ** attempt * 1000, 64000) + Math.floor(Math.random() * 1000);
         console.warn(`⚠️ Google Sheets erro ${code} (${reason}), retry em ${delay}ms`);
         await new Promise(r => setTimeout(r, delay));
         attempt++;
         continue;
       }
-      }
-      }
 
-      if (code === 401) {
-  console.warn('⚠️ Erro 401: Não autorizado — verifique se a planilha está compartilhada com a conta de serviço.');
-  return;
-}
       throw err;
     }
+  }
+}
 
 // Telegram Bot API
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
@@ -266,11 +242,9 @@ async function scanAndMonitorAllTrades(auth) {
       const raw = rows[i];
       const rowNum = i + 2;
       const id = generateTradeId(raw, rowNum);
-      if (processedTrades.has(id)) continue;
 
       const trade = parseRow(raw, rowNum);
       if (!trade.Status) {
-        saveProcessedTrade(id);
         if (!sentTrades.includes(id)) {
           trade.TipoCard = 'open';
           try {
@@ -301,10 +275,9 @@ async function checkNewEntries(auth) {
         const raw = rows[rows.length - 1];
         const rowNum = rows.length + 1;
         const id = generateTradeId(raw, rowNum);
-        if (!processedTrades.has(id) && !sentTrades.includes(id)) {
+        if (!sentTrades.includes(id)) {
           const trade = parseRow(raw, rowNum);
           if (!trade.Status) {
-            saveProcessedTrade(id);
             trade.TipoCard = 'open';
             try {
               await sendTradeToTelegram(trade);
@@ -327,11 +300,15 @@ async function checkNewEntries(auth) {
 function startMonitor(trade, auth) {
   const key = trade.rowNumber;
   if (activeMonitors.has(key)) return;
-  activeMonitors.set(key, true);
+
+  console.log(`[startMonitor] Iniciando monitoramento para linha ${key} (${trade.Ativo})`);
+
   (async () => {
     while (activeTasks >= CONCURRENCY_LIMIT) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
+
+    activeMonitors.set(key, true); // <- agora só marca como ativo quando de fato iniciar
     activeTasks++;
     try {
       await monitorPrice(trade, auth);
@@ -365,6 +342,7 @@ async function monitorPrice(trade, auth) {
 
   const url = `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${Ativo}`;
   let wasDisconnected = false, price;
+  let failCount = 0; // ⬅️ contador de falhas
   const hasTakenProfit = trade.ResAlvo1 != null;
 
   while (true) {
@@ -376,7 +354,22 @@ async function monitorPrice(trade, auth) {
       wasDisconnected = false;
     }
 
-    const price = parseFloat(resp.data.result.list[0].lastPrice);
+    const priceRaw = resp?.data?.result?.list?.[0]?.lastPrice;
+    if (!priceRaw || isNaN(priceRaw)) {
+    throw new Error(`[${Ativo}] Preço inválido recebido da Bybit: ${JSON.stringify(resp.data)}`);
+    }
+
+    const price = parseFloat(priceRaw);
+    const last = lastLogBySymbol.get(Ativo);
+    const now = Date.now();
+    const priceChange = !last || Math.abs(last.price - price) >= 0.5;
+    const timeElapsed = !last || now - last.time >= 5 * 60 * 1000; // 5 minutos
+
+    if (priceChange || timeElapsed) {
+    console.log(`[Monitor Ativo] ${Ativo} | Preço atual: ${price} | Entrada: ${Entrada} | Alvo1: ${Alvo1}`);
+    lastLogBySymbol.set(Ativo, { price, time: now });
+    }
+
     const pnl = isLong
       ? ((price - Entrada) / Entrada) * 100 * Alavancagem
       : ((Entrada - price) / Entrada) * 100 * Alavancagem;
@@ -430,7 +423,7 @@ async function monitorPrice(trade, auth) {
   }
 }
 
-    if (hitT2) {
+        if (hitT2) {
       try {
         await safeSheetsCall(() =>
           sheets.spreadsheets.values.update({
@@ -449,13 +442,20 @@ async function monitorPrice(trade, auth) {
     }
 
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
   } catch (err) {
     wasDisconnected = true;
-    console.error(`[Monitor ${Ativo}] Erro inesperado no loop de monitoramento: ${err.message}`);
+    failCount++;
+    console.error(`[Monitor ${Ativo}] Erro inesperado no loop de monitoramento: ${err.message} (falha ${failCount})`);
+
+    if (failCount >= 10) {
+      console.error(`[Monitor ${Ativo}] ⚠️ 10 falhas consecutivas — encerrando monitoramento para evitar loop infinito.`);
+      break;
+    }
+
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
-}
-
+} // ← encerra o while(true)
 }
 
 async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
@@ -490,9 +490,19 @@ async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
     updates.push({ range: `M${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
   }
 
-  updates.push({ range: `P${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
-  updates.push({ range: `Q${rowNumber}`, values: [['Encerrado']] });
-  updates.push({ range: `R${rowNumber}`, values: [[tipoFinal]] });
+// Preenche colunas padrão
+updates.push({ range: `P${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
+updates.push({ range: `Q${rowNumber}`, values: [['Encerrado']] });
+updates.push({ range: `R${rowNumber}`, values: [[tipoFinal]] });
+
+// Preenche coluna I apenas se for Stop sem nenhum alvo
+if (
+  tipoFinal === 'Stop Loss' &&
+  trade.ResAlvo1 == null &&
+  trade.ResAlvo2 == null
+) {
+  updates.push({ range: `I${rowNumber}`, values: [[Math.abs(finalPnl.toFixed(2))]] });
+}
 
   await safeSheetsCall(() =>
     sheets.spreadsheets.values.batchUpdate({

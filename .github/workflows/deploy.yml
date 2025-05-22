@@ -1,27 +1,22 @@
-name: Deploy Tradewatch Bot to AWS
+script: |
+  echo "📦 Acessando diretório do bot"
+  cd tradewatch-bot
 
-on:
-  push:
-    branches:
-      - main
+  echo "🔍 Checando variáveis essenciais..."
+  test -f .env || { echo '❌ .env não encontrado'; exit 1; }
+  grep -q TELEGRAM_TOKEN .env || { echo '❌ TELEGRAM_TOKEN ausente no .env'; exit 1; }
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  echo "🔄 Atualizando repositório"
+  git pull origin main
 
-    steps:
-      - name: ⬇️ Checkout code
-        uses: actions/checkout@v3
+  echo "🧹 Removendo containers antigos"
+  docker-compose down
 
-      - name: 🤝 Connect via SSH and deploy
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: 18.143.21.82
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_KEY }}
-          script: |
-            cd tradewatch-bot
-            git fetch https://github.com/frontdev1254/tradewatch-bot.git main
-            git reset --hard FETCH_HEAD
-            docker-compose down
-            docker-compose up -d --build
+  echo "🧼 Limpando imagens não utilizadas"
+  docker image prune -f
+
+  echo "🚀 Subindo nova versão com build forçado"
+  docker-compose up -d --build --remove-orphans
+
+  echo "🩺 Executando healthcheck"
+  curl -f http://localhost:3000/health || exit 1

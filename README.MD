@@ -71,8 +71,7 @@ tradewatch-bot/
 │   └── sheets.js             # Google Sheets wrapper (Service Account auth)
 ├── data/
 │   ├── sent_trades.json      # JSON cache of sent trades
-│   └── processed_trades.json # JSON cache of processed trades
-├── secrets/
+│── secrets/
 │   └── tradewatch-key.json   # Service Account JSON (excluded from Git)
 ├── .env                      # Environment variables
 ├── Dockerfile                # Docker build config
