@@ -116,6 +116,8 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
         attempt++;
         continue;
       }
+      }
+      }
 
       if (code === 401) {
   console.warn('⚠️ Erro 401: Não autorizado — verifique se a planilha está compartilhada com a conta de serviço.');
@@ -123,8 +125,6 @@ async function safeSheetsCall(callFn, maxRetries = 5) {
 }
       throw err;
     }
-  }
-}
 
 // Telegram Bot API
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
@@ -390,32 +390,45 @@ async function monitorPrice(trade, auth) {
     }
 
     if (hitT1) {
-      try {
-        await safeSheetsCall(() =>
-          sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `K${rowNumber}`,
-            valueInputOption: 'RAW',
-            resource: { values: [[pnl.toFixed(2)]] }
-          })
-        );
-      } catch (err) {
-        console.error(`[Monitor ${Ativo}] Erro ao atualizar Alvo 1: ${err.message}`);
-      }
+  try {
+    await safeSheetsCall(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `K${rowNumber}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[pnl.toFixed(2)]] }
+      })
+    );
+  } catch (err) {
+    console.error(`[Monitor ${Ativo}] Erro ao atualizar Alvo 1: ${err.message}`);
+  }
 
-      trade.ResAlvo1 = pnl;
-      trade.TipoCard = 'update1';
+  trade.ResAlvo1 = pnl;
+  trade.TipoCard = 'update1';
 
-      if (!Alvo2) {
-        return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
-      }
+  if (!Alvo2) {
+    return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
+  }
 
-      try {
-        await sendTradeToTelegram(trade);
-      } catch (e) {
-        console.error(`[Monitor ${Ativo}] Erro ao enviar card de Alvo 1: ${e.message}`);
+  const id = generateTradeId([trade.Timestamp, trade.Trader, trade.Ativo], trade.rowNumber);
+  let attempt = 0;
+  while (attempt < 5) {
+    try {
+      await sendTradeToTelegram(trade);
+      if (!sentTrades.includes(id)) {
+        sentTrades.push(id);
+        saveSentTrades();
       }
+      console.log(`[SEND UPDATE1] Alvo 1 enviado com sucesso para ${Ativo}`);
+      break;
+    } catch (e) {
+      attempt++;
+      const delay = Math.min(2 ** attempt * 1000, 30000);
+      console.error(`[Monitor ${Ativo}] Tentativa ${attempt}: erro ao enviar card de Alvo 1: ${e.message}`);
+      await new Promise(r => setTimeout(r, delay));
     }
+  }
+}
 
     if (hitT2) {
       try {
@@ -488,14 +501,29 @@ async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
     })
   );
 
+  const id = generateTradeId([trade.Timestamp, trade.Trader, trade.Ativo], trade.rowNumber);
+let attemptClose = 0;
+while (attemptClose < 5) {
   try {
     await sendTradeToTelegram({ ...trade, TipoCard: 'close', finalPnl, tipoFinal });
+    if (!sentTrades.includes(id)) {
+      sentTrades.push(id);
+      saveSentTrades();
+    }
+        console.log(`[SEND CLOSE] Fechamento enviado com sucesso para ${trade.Ativo}`);
+    break;
   } catch (e) {
-    console.error('❌ erro enviando fechamento:', e.message);
+    attemptClose++;
+    const delay = Math.min(2 ** attemptClose * 1000, 30000);
+    console.error(`[CLOSE ${trade.Ativo}] Tentativa ${attemptClose}: erro ao enviar fechamento: ${e.message}`);
+    await new Promise(r => setTimeout(r, delay));
   }
 }
 
+} // <== ESSA CHAVE FECHA A FUNÇÃO closeTrade!!!
+
 async function sendTradeToTelegram(trade) {
+
   const {
     Imagem, Ativo, Categoria, Posicao, Alavancagem, Entrada, Stop,
     Alvo1, Alvo2, Trader, Timestamp, Analise, TipoCard, ResAlvo1,
