@@ -1,22 +1,43 @@
-script: |
-  echo "📦 Acessando diretório do bot"
-  cd tradewatch-bot
+name: 🚀 Deploy Tradewatch Bot to AWS
 
-  echo "🔍 Checando variáveis essenciais..."
-  test -f .env || { echo '❌ .env não encontrado'; exit 1; }
-  grep -q TELEGRAM_TOKEN .env || { echo '❌ TELEGRAM_TOKEN ausente no .env'; exit 1; }
+on:
+  push:
+    branches:
+      - main
 
-  echo "🔄 Atualizando repositório"
-  git pull origin main
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-  echo "🧹 Removendo containers antigos"
-  docker-compose down
+    steps:
+      - name: ⬇️ Checkout código do repositório
+        uses: actions/checkout@v3
 
-  echo "🧼 Limpando imagens não utilizadas"
-  docker image prune -f
+      - name: 🤝 Conectar via SSH e realizar o deploy
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            echo "📦 Acessando diretório do bot"
+            cd tradewatch-bot
 
-  echo "🚀 Subindo nova versão com build forçado"
-  docker-compose up -d --build --remove-orphans
+            echo "🔍 Checando variáveis essenciais..."
+            test -f .env || { echo '❌ .env não encontrado'; exit 1; }
+            grep -q TELEGRAM_TOKEN .env || { echo '❌ TELEGRAM_TOKEN ausente no .env'; exit 1; }
 
-  echo "🩺 Executando healthcheck"
-  curl -f http://localhost:3000/health || exit 1
+            echo "🔄 Atualizando repositório"
+            git pull origin main
+
+            echo "🧹 Removendo containers antigos"
+            docker-compose down
+
+            echo "🧼 Limpando imagens não utilizadas"
+            docker image prune -f
+
+            echo "🚀 Subindo nova versão com build forçado"
+            docker-compose up -d --build --remove-orphans
+
+            echo "🩺 Executando healthcheck"
+            curl -f http://localhost:3000/health || exit 1
